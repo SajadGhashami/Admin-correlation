@@ -1,0 +1,127 @@
+---
+title: "Drop"
+author: "Sajad Ghashami"
+date: "2023-01-20"
+output: 
+   html_document:
+     code_folding: hide
+     theme: cerulean
+---
+
+```{=html}
+<style type="text/css">
+.main-container {
+  max-width: 1400px;
+  margin-left: auto;
+  margin-right: auto;
+}
+</style>
+```
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE, fig.align = 'center')
+```
+
+```{r echo=FALSE, message=FALSE, warning=FALSE, include=FALSE}
+library(tidyverse)
+library(DBI)
+library(rmarkdown)
+library(ggpubr)
+library(data.table)
+library(knitr)
+library(plotly)
+library(rsconnect)
+library(reactable)
+library(moments)
+library(downloadthis)
+```
+
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+con <- DBI::dbConnect(odbc::odbc(),
+                      #Snowflake
+                      #SnowflakeDSIIDriver
+                      Driver       = "SnowflakeDSIIDriver",
+                      Server       = "ed87949.us-east-1.snowflakecomputing.com",
+                      UID          = "SHINY_APP",
+                      PWD          =  "5UK@cMGTf2xA",
+                      
+                      # UID          = rstudioapi::askForPassword("Database user"),
+                      # PWD          = rstudioapi::askForPassword("Database password"),
+                      Database     = "EDW",
+                      Warehouse    = "shiny_app",
+                      Schema       = "dim"
+                      #,
+                      #authenticator = "externalbrowser"
+                      )
+mywh <- DBI::dbSendQuery(con, 'use role shiny_app_role')
+#mywh <- DBI::dbSendQuery(con, 'use role developer_role')
+mywh <- DBI::dbSendQuery(con, 'use warehouse shiny_app')
+```
+
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+base_table <- DBI::dbGetQuery(con,
+             "
+WITH admin_activity AS (
+SELECT
+    DATE_TRUNC('MONTH',calendar.date) as action_month,
+    COUNT(DISTINCT CASE WHEN ((UPPER(product_actions.ACTION_NAME ) = UPPER('Active Users')))
+          AND (product_actions.IS_TEACHER) 
+          AND ((users.IS_DISTRICT_LEADER) OR (users.IS_SCHOOL_LEADER))
+          THEN product_actions.user_id  ELSE NULL END) AS unique_active_admins
+FROM FACT.PRODUCT_ACTIONS  AS product_actions
+INNER JOIN DIM.CALENDAR AS calendar
+    ON (product_actions.ACTION_DATE_KEY) = calendar.DATE_KEY
+INNER JOIN DIM.USERS AS users
+    ON (product_actions.USER_KEY) = (users.USER_KEY)
+WHERE (calendar.date ) >= (TO_DATE(TO_TIMESTAMP('2017-07-01'))) 
+     AND (NOT (users.IS_STUDENT ) OR (users.IS_STUDENT ) IS NULL)
+GROUP BY
+    DATE_TRUNC('MONTH',calendar.date)
+    )
+, actions AS (    
+SELECT
+     DATE_TRUNC('MONTH',calendar.date)  as action_month,
+    COUNT(DISTINCT CASE WHEN ((UPPER(product_actions.ACTION_NAME ) = UPPER('Active Users')))
+          AND (product_actions.IS_TEACHER)           
+          THEN product_actions.action_id  ELSE NULL END) AS teacher_actions,
+    COUNT(DISTINCT CASE WHEN ((UPPER(product_actions.ACTION_NAME ) = UPPER('Active Users')))
+          AND (product_actions.IS_STUDENT)           
+          THEN product_actions.action_id  ELSE NULL END) AS student_actions
+FROM FACT.PRODUCT_ACTIONS  AS product_actions
+INNER JOIN DIM.CALENDAR AS calendar
+    ON (product_actions.ACTION_DATE_KEY) = calendar.DATE_KEY
+INNER JOIN DIM.USERS AS users
+    ON (product_actions.USER_KEY) = (users.USER_KEY)
+WHERE (calendar.date ) >= (TO_DATE(TO_TIMESTAMP('2017-07-01')))     
+     AND (NOT (users.IS_DISTRICT_LEADER ) OR (users.IS_DISTRICT_LEADER ) IS NULL)
+     AND (NOT (users.IS_SCHOOL_LEADER ) OR (users.IS_SCHOOL_LEADER ) IS NULL)
+GROUP BY
+    DATE_TRUNC('MONTH',calendar.date)  
+)
+SELECT aa.action_month,
+       aa.unique_active_admins,
+       act.teacher_actions,
+       act.student_actions
+FROM admin_activity AS aa
+JOIN actions AS act
+    ON aa.action_month = act.action_month
+     ")
+
+```
+
+```{r test}
+head(base_table)
+
+columnnames <- names(base_table)
+```
+
+```{r}
+ggplot(base_table, aes(UNIQUE_ACTIVE_ADMINS, STUDENT_ACTIONS)) +
+  geom_point() +
+  geom_smooth()
+```
+```{r}
+ggplot(base_table, aes(UNIQUE_ACTIVE_ADMINS, TEACHER_ACTIONS)) +
+  geom_point() +
+  geom_smooth()
+```
